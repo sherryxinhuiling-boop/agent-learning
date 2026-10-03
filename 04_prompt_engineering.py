@@ -51,6 +51,12 @@ EXPECTED_SCHEMA = {
 
 ALLOWED_SENTIMENTS = {"positive", "neutral", "negative"}
 
+# 哪些字段允许为 null。
+# 这里的划分依据是「字段语义」：
+#   事实类 —— 用户陈述的内容，原文没说就必须是 null，不许推断
+#   判断类 —— 模型的分析结论，本来就该由模型给出
+NULLABLE = {"product", "rating", "recommend"}
+
 
 # ============================================================
 # 五个 Prompt 变体，从最随便到最规范
@@ -58,6 +64,22 @@ ALLOWED_SENTIMENTS = {"positive", "neutral", "negative"}
 
 
 
+
+V1 = {
+    "name": "V1 极简",
+    "note": "只说要做什么，没说怎么做",
+    "system": None,
+    "user": f"提取这段评价里的信息。\n\n{REVIEW}",
+    "extra": None,
+}
+
+V2 = {
+    "name": "V2 指定格式",
+    "note": "提了 JSON，但没说字段和约束",
+    "system": None,
+    "user": f"提取这段评价里的信息，用 JSON 格式输出。\n\n{REVIEW}",
+    "extra": None,
+}
 
 V3_SYSTEM = "你是一个信息抽取助手。你只输出 JSON，不输出任何其他文字。"
 
@@ -73,12 +95,15 @@ V3_USER = f"""从下面的用户评价中抽取信息。
 
 要求：
 1. 只输出 JSON 对象本身。不要用 ```json 代码块包裹，不要加任何解释文字
-2. 所有字段都必须输出，不要用 null；没有明确信息的字段根据上下文合理推断：
-   - product 推断为最合理的商品类别（如 "外卖"）
-   - rating 根据情绪推断一个 1-5 的整数
-   - pros / issues 用字符串数组，没有就用 []
+2. 下面两类字段的处理方式不同，请严格区分：
+   【事实类】product、rating、recommend
+     必须来自评价原文中明确表达的内容。原文没有明确提到时，一律填 null。
+     绝对不要根据语气、情绪去推测这三个值 —— 编造比留空更有害。
+   【判断类】pros、issues、sentiment
+     这是你要给出的分析结论，可以根据原文判断。
+     pros / issues 没有内容时填空数组 []；sentiment 必须给出。
 3. 严格使用上面的字段名，不要新增、删除或改名
-4. rating 必须是 JSON 数字，recommend 必须是布尔值，不要写成字符串
+4. rating 与 recommend 必须是 JSON 数字和布尔值，不要写成字符串
 
 评价：
 {REVIEW}"""
@@ -91,9 +116,40 @@ V3 = {
     "extra": None,
 }
 
+V4_EXAMPLE = """示例 1（信息完整的评价）：
 
-# 本次只保留 V3 这一个变体
-VARIANTS = [V3]
+评价：
+这个键盘手感很好，但是用了两周就有一个键失灵了，联系客服也没人回。很失望。
+
+输出：
+{"product": "键盘", "rating": 2, "pros": ["手感好"], "issues": ["键位失灵", "客服无响应"], "recommend": false, "sentiment": "negative"}
+
+示例 2（原文没有给出的事实，必须填 null）：
+
+评价：
+包装很结实，发货也快。
+
+输出：
+{"product": null, "rating": null, "pros": ["包装结实", "发货快"], "issues": [], "recommend": null, "sentiment": "positive"}"""
+
+V4 = {
+    "name": "V4 规范+示例",
+    "note": "V3 再加一个输入输出示例",
+    "system": V3_SYSTEM,
+    "user": f"{V4_EXAMPLE}\n\n现在请处理下面这条评价。\n\n评价：\n{REVIEW}",
+    "extra": None,
+}
+
+V5 = {
+    "name": "V5 规范+JSON模式",
+    "note": "不改 Prompt，改用 API 的强制 JSON 特性",
+    "system": V3_SYSTEM,
+    "user": V3_USER,
+    "extra": {"response_format": {"type": "json_object"}},
+}
+
+
+VARIANTS = [V1, V2, V3, V4, V5]
 
 
 # ============================================================
@@ -138,6 +194,17 @@ def check_schema(data):
             problems.append(f"缺少字段 `{key}`")
             continue
         value = data[key]
+
+        # null 的处理：这一点最容易出错。
+        # Prompt 允许「原文没提到的填 null」，校验就必须接受 null ——
+        # 否则规格自相矛盾：模型按你的要求填了 null，却被你判为不合格。
+        if value is None:
+            if key not in NULLABLE:
+                problems.append(
+                    f"`{key}` 是判断类字段，不允许为 null，必须给出值"
+                )
+            continue
+
         # 注意：Python 里 isinstance(True, int) 是 True，
         # 所以布尔值会被误判为整数，必须单独排除。
         if expected_type is int and isinstance(value, bool):
@@ -154,9 +221,9 @@ def check_schema(data):
 
     # 3. 取值范围
     rating = data.get("rating")
-    if (isinstance(rating, int) and not isinstance(rating, bool)
-            and not 1 <= rating <= 5):
-        problems.append(f"`rating` 超出 1-5 范围：{rating}")
+    if isinstance(rating, int) and not isinstance(rating, bool):
+        if not 1 <= rating <= 5:
+            problems.append(f"`rating` 超出 1-5 范围：{rating}")
 
     sentiment = data.get("sentiment")
     if isinstance(sentiment, str) and sentiment not in ALLOWED_SENTIMENTS:
@@ -201,7 +268,7 @@ def run_variant(variant):
     messages.append({"role": "user", "content": variant["user"]})
 
     started = time.time()
-    text, usage = llm.chat(messages, temperature=1.5, extra=variant["extra"])
+    text, usage = llm.chat(messages, temperature=0, extra=variant["extra"])
     elapsed = time.time() - started
 
     return {
@@ -218,7 +285,7 @@ def run_variant(variant):
 # ============================================================
 def main():
     print("=" * 66)
-    print("Prompt 实验：只测 V3 规范写法")
+    print("Prompt 对比实验：同一任务，五种写法")
     print("=" * 66)
     print()
     print("两层判定标准：")
