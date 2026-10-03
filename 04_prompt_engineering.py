@@ -34,10 +34,7 @@ import llm
 # ============================================================
 # 待处理的评价文本
 # ============================================================
-REVIEW = """上周在你们店里买了那款降噪耳机，等了四天才到货，有点慢。
-不过音质是真的好，戴一整天耳朵也不疼，续航也够用。
-就是包装盒被压扁了一角，客服态度倒是不错，二话不说就补发了。
-整体还是挺满意的，会推荐给朋友，但物流希望能改进。"""
+REVIEW = """上周点了个外卖，超时没送到，我找客服，他竟然要给我取消订单，我还饿着呢，其实正在送，我只是想催一下，为什么要给我退款。"""
 
 
 # ============================================================
@@ -59,21 +56,8 @@ ALLOWED_SENTIMENTS = {"positive", "neutral", "negative"}
 # 五个 Prompt 变体，从最随便到最规范
 # ============================================================
 
-V1 = {
-    "name": "V1 极简",
-    "note": "只说要做什么，没说怎么做",
-    "system": None,
-    "user": f"提取这段评价里的信息。\n\n{REVIEW}",
-    "extra": None,
-}
 
-V2 = {
-    "name": "V2 指定格式",
-    "note": "提了 JSON，但没说字段和约束",
-    "system": None,
-    "user": f"提取这段评价里的信息，用 JSON 格式输出。\n\n{REVIEW}",
-    "extra": None,
-}
+
 
 V3_SYSTEM = "你是一个信息抽取助手。你只输出 JSON，不输出任何其他文字。"
 
@@ -89,9 +73,12 @@ V3_USER = f"""从下面的用户评价中抽取信息。
 
 要求：
 1. 只输出 JSON 对象本身。不要用 ```json 代码块包裹，不要加任何解释文字
-2. 评价中没有提到的信息用 null，不要编造
+2. 所有字段都必须输出，不要用 null；没有明确信息的字段根据上下文合理推断：
+   - product 推断为最合理的商品类别（如 "外卖"）
+   - rating 根据情绪推断一个 1-5 的整数
+   - pros / issues 用字符串数组，没有就用 []
 3. 严格使用上面的字段名，不要新增、删除或改名
-4. rating 与 recommend 必须是 JSON 数字和布尔值，不要写成字符串
+4. rating 必须是 JSON 数字，recommend 必须是布尔值，不要写成字符串
 
 评价：
 {REVIEW}"""
@@ -104,32 +91,9 @@ V3 = {
     "extra": None,
 }
 
-V4_EXAMPLE = """示例：
 
-评价：
-这个键盘手感很好，但是用了两周就有一个键失灵了，联系客服也没人回。很失望。
-
-输出：
-{"product": "键盘", "rating": 2, "pros": ["手感好"], "issues": ["键位失灵", "客服无响应"], "recommend": false, "sentiment": "negative"}"""
-
-V4 = {
-    "name": "V4 规范+示例",
-    "note": "V3 再加一个输入输出示例",
-    "system": V3_SYSTEM,
-    "user": f"{V4_EXAMPLE}\n\n现在请处理下面这条评价。\n\n评价：\n{REVIEW}",
-    "extra": None,
-}
-
-V5 = {
-    "name": "V5 规范+JSON模式",
-    "note": "不改 Prompt，改用 API 的强制 JSON 特性",
-    "system": V3_SYSTEM,
-    "user": V3_USER,
-    "extra": {"response_format": {"type": "json_object"}},
-}
-
-
-VARIANTS = [V1, V2, V3, V4, V5]
+# 本次只保留 V3 这一个变体
+VARIANTS = [V3]
 
 
 # ============================================================
@@ -190,9 +154,9 @@ def check_schema(data):
 
     # 3. 取值范围
     rating = data.get("rating")
-    if isinstance(rating, int) and not isinstance(rating, bool):
-        if not 1 <= rating <= 5:
-            problems.append(f"`rating` 超出 1-5 范围：{rating}")
+    if (isinstance(rating, int) and not isinstance(rating, bool)
+            and not 1 <= rating <= 5):
+        problems.append(f"`rating` 超出 1-5 范围：{rating}")
 
     sentiment = data.get("sentiment")
     if isinstance(sentiment, str) and sentiment not in ALLOWED_SENTIMENTS:
@@ -237,7 +201,7 @@ def run_variant(variant):
     messages.append({"role": "user", "content": variant["user"]})
 
     started = time.time()
-    text, usage = llm.chat(messages, temperature=0, extra=variant["extra"])
+    text, usage = llm.chat(messages, temperature=1.5, extra=variant["extra"])
     elapsed = time.time() - started
 
     return {
@@ -254,7 +218,7 @@ def run_variant(variant):
 # ============================================================
 def main():
     print("=" * 66)
-    print("Prompt 对比实验：同一任务，五种写法")
+    print("Prompt 实验：只测 V3 规范写法")
     print("=" * 66)
     print()
     print("两层判定标准：")
