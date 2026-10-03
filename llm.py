@@ -139,19 +139,31 @@ def ask(question, system=None, model=None, temperature=1.0, timeout=60):
     return chat(messages, model=model, temperature=temperature, timeout=timeout)
 
 
-def chat_stream(messages, model=None, temperature=1.0, timeout=120):
+def chat_stream(messages, model=None, temperature=1.0, timeout=120, usage_out=None):
     """
     流式版本：逐段产出文本。这是一个「生成器」——用 for 循环取，
     每拿到一小块就打印，所以文字会一个字一个字冒出来。
 
         for piece in chat_stream([{"role": "user", "content": "你好"}]):
             print(piece, end="", flush=True)
+
+    usage_out 是可选参数：传入一个 dict，函数结束时会往里写入本次用量。
+    为什么不用返回值？因为生成器没法同时「产出数据」和「返回结果」，
+    在外面传一个容器进来是 Python 里最常见的解法。
+
+        usage = {}
+        for piece in chat_stream(msgs, usage_out=usage):
+            ...
+        print(usage["total_tokens"])
     """
     payload = {
         "model": model or DEFAULT_MODEL,
         "messages": messages,
         "temperature": temperature,
         "stream": True,
+        # 让服务端在流式响应的最后一个数据块里带上用量信息。
+        # 不设这个的话，流式调用拿不到 token 数。
+        "stream_options": {"include_usage": True},
     }
 
     response = requests.post(
@@ -178,7 +190,17 @@ def chat_stream(messages, model=None, temperature=1.0, timeout=120):
         body = line[len("data: "):]
         if body == "[DONE]":
             break
-        delta = json.loads(body)["choices"][0]["delta"].get("content", "")
+
+        chunk = json.loads(body)
+
+        # 带用量信息的那个块，choices 是空数组
+        if usage_out is not None and chunk.get("usage"):
+            usage_out.update(chunk["usage"])
+
+        choices = chunk.get("choices")
+        if not choices:
+            continue
+        delta = choices[0]["delta"].get("content", "")
         if delta:
             yield delta
 
@@ -204,7 +226,7 @@ class Conversation:
             self.messages.append({"role": "system", "content": system})
 
     def say(self, text):
-        """说一句话，返回模型的回复。"""
+        """说一句话，返回模型的回复（等全部生成完再返回）。"""
         self.messages.append({"role": "user", "content": text})
         reply, usage = chat(
             self.messages,
@@ -216,6 +238,35 @@ class Conversation:
         self.total_cost += estimate_cost(usage)
         return reply
 
+    def say_stream(self, text):
+        """
+        流式版本的 say()：逐段产出，文字会一个字一个字冒出来。
+
+            for piece in conv.say_stream("你好"):
+                print(piece, end="", flush=True)
+
+        注意：这是一个生成器，必须在外面循环它才会真正执行。
+        写完历史记录、累计用量这些动作，是在循环结束（生成器跑完）之后才发生的。
+        """
+        self.messages.append({"role": "user", "content": text})
+
+        usage = {}
+        pieces = []
+        for piece in chat_stream(
+            self.messages,
+            model=self.model,
+            temperature=self.temperature,
+            usage_out=usage,
+        ):
+            pieces.append(piece)
+            yield piece
+
+        reply = "".join(pieces)
+        self.messages.append({"role": "assistant", "content": reply})
+        self.total_tokens += usage.get("total_tokens", 0)
+        self.total_cost += estimate_cost(usage)
+        self.last_usage = usage
+
     @property
     def message_count(self):
         return len(self.messages)
@@ -226,6 +277,23 @@ class Conversation:
         self.messages = system
         self.total_tokens = 0
         self.total_cost = 0.0
+
+    def drop_last_user_message(self):
+        """
+        撤销最后一条 user 消息。
+
+        用途：调用失败时把刚发出去的问题撤回来。否则历史里会留下
+        「一条提问、没有回答」的残缺记录 —— 下一轮请求时上下文是畸形的。
+        这类「失败要能干净回滚」的考虑，是稳定性的重要一环。
+        """
+        if self.messages and self.messages[-1]["role"] == "user":
+            self.messages.pop()
+            return True
+        return False
+
+    def history_without_system(self):
+        """返回去掉 system 消息的对话历史，用于保存或展示。"""
+        return [m for m in self.messages if m["role"] != "system"]
 
 
 # 直接运行这个文件时，做一次自检，确认配置和网络都正常

@@ -37,8 +37,20 @@ python 01_basics.py
 | `03_api_call.py` | 项目 0.2：无框架的原始 HTTP 调用，揭开「调用大模型」的黑箱 |
 | `04_prompt_engineering.py` | 阶段 1：Prompt 对比实验，同一任务的五种写法 + 两层判定标准 |
 | `05_reliable_extract.py` | 阶段 1：可靠抽取函数，Prompt + JSON 模式 + 校验重试三层防护 |
+| `chat.py` | **里程碑项目 1：个人命令行 AI 助手**。连续对话 + 流式输出 + 会话管理 + 成本统计 |
 | `.env` | API 密钥，**已被忽略，不入库** |
 | `sandbox/` | `02_file_organizer.py` 的演示沙盒，可随时删除重建 |
+| `chats/` | `chat.py` 保存的对话记录，属于个人数据，**不入库** |
+
+## 快速上手
+
+```bash
+cd ~/Projects/agent-learning
+source .venv/bin/activate
+python chat.py        # 启动 AI 助手
+```
+
+对话中输入 `/help` 查看所有命令。
 
 ## 学习进度
 
@@ -47,7 +59,10 @@ python 01_basics.py
 - [x] 阶段 0 · 项目 0.1 文件整理脚本
 - [x] 阶段 0 · 项目 0.2 API 调用脚本
 - [x] 阶段 0 · 推送到 GitHub
-- [ ] 阶段 1 · LLM 应用入门
+- [x] 阶段 1 · 抽出 llm 可复用模块
+- [x] 阶段 1 · Prompt 对比实验与两层判定标准
+- [x] 阶段 1 · 可靠抽取（校验 + 反馈重试）
+- [x] 阶段 1 · **里程碑项目 1：个人 CLI 助手**
 - [ ] 阶段 2 · RAG 知识库
 - [ ] 阶段 3 · Agent 核心
 - [ ] 阶段 4 · 产品化上线
