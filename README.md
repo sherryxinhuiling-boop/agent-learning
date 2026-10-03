@@ -36,6 +36,7 @@ python 01_basics.py
 | `02_file_organizer.py` | 项目 0.1：文件整理脚本，按扩展名分类复制文件（只复制，不移动不删除） |
 | `03_api_call.py` | 项目 0.2：无框架的原始 HTTP 调用，揭开「调用大模型」的黑箱 |
 | `04_prompt_engineering.py` | 阶段 1：Prompt 对比实验，同一任务的五种写法 + 两层判定标准 |
+| `05_reliable_extract.py` | 阶段 1：可靠抽取函数，Prompt + JSON 模式 + 校验重试三层防护 |
 | `.env` | API 密钥，**已被忽略，不入库** |
 | `sandbox/` | `02_file_organizer.py` 的演示沙盒，可随时删除重建 |
 
