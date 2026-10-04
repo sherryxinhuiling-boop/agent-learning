@@ -1,6 +1,9 @@
 certifi==2026.7.22
 charset-normalizer==3.5.2
 idna==3.20
+jieba==0.42.1
+numpy==2.5.3
 python-dotenv==1.2.4
+rank-bm25==0.2.2
 requests==2.34.2
 urllib3==2.8.0
