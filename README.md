@@ -38,6 +38,8 @@ python 01_basics.py
 | `04_prompt_engineering.py` | 阶段 1：Prompt 对比实验，同一任务的五种写法 + 两层判定标准 |
 | `05_reliable_extract.py` | 阶段 1：可靠抽取函数，Prompt + JSON 模式 + 校验重试三层防护 |
 | `chat.py` | **里程碑项目 1：个人命令行 AI 助手**。连续对话 + 流式输出 + 会话管理 + 成本统计 |
+| `knowledge/` | **阶段 2 语料库**：10 篇 AI Agent 知识文档（约 9600 字），RAG 的数据源 |
+| `testset.json` | **阶段 2 测试集**：20 道题，含标准答案、出处、五类题型（其中 5 题「无法回答」） |
 | `.env` | API 密钥，**已被忽略，不入库** |
 | `sandbox/` | `02_file_organizer.py` 的演示沙盒，可随时删除重建 |
 | `chats/` | `chat.py` 保存的对话记录，属于个人数据，**不入库** |
